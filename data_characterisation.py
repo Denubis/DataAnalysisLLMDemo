@@ -16,7 +16,9 @@ from netCDF4 import MFDataset, num2date
 from tqdm import tqdm
 import sys
 import pickle
-from rocksdict import Rdict
+
+# from rocksdict import Rdict
+import sqlean as sqlite3
 
 # Global variables or configurations (like paths to datasets, etc.)
 
@@ -103,219 +105,41 @@ def plot_sea_ice_extent_timeseries(dataframe, outfile):
 # ---------------------------------------
 
 
-def load_argo_data(directory_path):
+def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
     """
     Load the Argo netCDF file and return relevant data arrays.
     """
-    # let's see what the monthly data looks like
 
-    def walktree(top):
-        yield top.groups.values()
-        for value in top.groups.values():
-            yield from walktree(value)
+    # connect to the sqlitedb and enable spatialite extension
+    with sqlite3.connect(sqlitedb) as db:
+        db.enable_load_extension(True)
+        db.load_extension("mod_spatialite")
+        # Note to user, you'll need to install mod-spatalite here
+        
+        # initalise the db if necessary to hold the argo data. 
+        
+        db.execute("""CREATE TABLE IF NOT EXISTS argo_data (
+    source TEXT, 
+    ARGO_TEMPERATURE_ANOMALY REAL, 
+    ARGO_SALINITY_ANOMALY REAL, 
+    LONGITUDE REAL, 
+    LATITUDE REAL, 
+    PRESSURE REAL, 
+    TIME TEXT,
+    PRIMARY KEY (LONGITUDE, LATITUDE, PRESSURE, TIME));
+""")
+        
+        # make the geometry column if it does not exist and only init the spatial metadata if it does not exist
+        db.execute("SELECT InitSpatialMetaData(1);")
+        if db.execute("SELECT COUNT(*) FROM geometry_columns WHERE f_table_name = 'argo_data';").fetchone()[0] == 0:
+            # We'll also need to intialise the spatial functions
+            db.execute("SELECT AddGeometryColumn('argo_data', 'geometry', 4326, 'POINT', 'XY');")
+            db.execute("SELECT CreateSpatialIndex('argo_data', 'geometry');")
+            db.commit()
+        
+    
 
-    # test_path = "data/ArgoClim/RG_ArgoClim_201901_2019.nc"
-    # with Dataset(test_path, "r", format="NETCDF3_CLASSIC") as rootgrp:
-    #     # print(rootgrp.data_model)
-    #     # https://unidata.github.io/netcdf4-python/#creatingopeningclosing-a-netcdf-file
-    #     # for children in walktree(rootgrp):
-    #     #     for child in children:
-    #     #         print(child)
-    #     # there are no groups in this data...
-    #     # print(rootgrp.dimensions)
-    #     # {'LONGITUDE': <class 'netCDF4._netCDF4.Dimension'>: name = 'LONGITUDE', size = 360,
-    #     #  'LATITUDE': <class 'netCDF4._netCDF4.Dimension'>: name = 'LATITUDE', size = 145,
-    #     #  'PRESSURE': <class 'netCDF4._netCDF4.Dimension'>: name = 'PRESSURE', size = 58,
-    #     #  'TIME': <class 'netCDF4._netCDF4.Dimension'>: name = 'TIME', size = 1}
-    #     # print(rootgrp.variables)
-    #     # float32 LONGITUDE(LONGITUDE)
-    #     #     units: degrees_east
-    #     #     modulo: 360.0
-    #     #     point_spacing: even
-    #     #     axis: X
-    #     # unlimited dimensions:
-    #     # current shape = (360,)
-    #     # filling on, default _FillValue of 9.969209968386869e+36 used, 'LATITUDE': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 LATITUDE(LATITUDE)
-    #     #     units: degrees_north
-    #     #     point_spacing: even
-    #     #     axis: Y
-    #     # unlimited dimensions:
-    #     # current shape = (145,)
-    #     # filling on, default _FillValue of 9.969209968386869e+36 used, 'PRESSURE': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 PRESSURE(PRESSURE)
-    #     #     units: dbar
-    #     #     positive: down
-    #     #     point_spacing: uneven
-    #     #     axis: Z
-    #     # unlimited dimensions:
-    #     # current shape = (58,)
-    #     # filling on, default _FillValue of 9.969209968386869e+36 used, 'TIME': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 TIME(TIME)
-    #     #     units: months since 2004-01-01 00:00:00
-    #     #     time_origin: 01-JAN-2004 00:00:00
-    #     #     axis: T
-    #     # unlimited dimensions:
-    #     # current shape = (1,)
-    #     # filling on, default _FillValue of 9.969209968386869e+36 used, 'ARGO_TEMPERATURE_ANOMALY': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 ARGO_TEMPERATURE_ANOMALY(TIME, PRESSURE, LATITUDE, LONGITUDE)
-    #     #     units: degree celcius (ITS-90)
-    #     #     missing_value: -999.0
-    #     #     _FillValue: -999.0
-    #     #     long_name: ARGO TEMPERATURE ANOMALY defined by 2004 - 2018 RG CLIMATOLOGY
-    #     # unlimited dimensions:
-    #     # current shape = (1, 58, 145, 360)
-    #     # filling on, 'ARGO_SALINITY_ANOMALY': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 ARGO_SALINITY_ANOMALY(TIME, PRESSURE, LATITUDE, LONGITUDE)
-    #     #     units: Practical Salinity Scale 78
-    #     #     missing_value: -999.0
-    #     #     _FillValue: -999.0
-    #     #     long_name: ARGO SALINITY ANOMALY defined by 2004 - 2018 RG CLIMATOLOGY
-    #     # unlimited dimensions:
-    #     # current shape = (1, 58, 145, 360)
-    #     # filling on}
-    #     # print("attrs", rootgrp.__dict__)
-    #     # for name in rootgrp.ncattrs():
-    #     #     print("Global attr {} = {}".format(name, getattr(rootgrp, name)))
-
-    #     # print the first row of data
-
-    # print("salinity")
-    # test_path3 = "data/ArgoClim/RG_ArgoClim_Salinity_2019.nc"
-    # with Dataset(test_path3, "r", format="NETCDF3_CLASSIC") as rootgrp3:
-    #     pass
-    #     # print( rootgrp3.variables)
-
-    #     # {'LONGITUDE': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 LONGITUDE(LONGITUDE)
-    #     #     units: degrees_east
-    #     #     modulo: 360.0
-    #     #     point_spacing: even
-    #     #     axis: X
-    #     # unlimited dimensions:
-    #     # current shape = (360,)
-    #     # filling on, default _FillValue of 9.969209968386869e+36 used, 'LATITUDE': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 LATITUDE(LATITUDE)
-    #     #     units: degrees_north
-    #     #     point_spacing: even
-    #     #     axis: Y
-    #     # unlimited dimensions:
-    #     # current shape = (145,)
-    #     # filling on, default _FillValue of 9.969209968386869e+36 used, 'PRESSURE': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 PRESSURE(PRESSURE)
-    #     #     units: dbar
-    #     #     positive: down
-    #     #     point_spacing: uneven
-    #     #     axis: Z
-    #     # unlimited dimensions:
-    #     # current shape = (58,)
-    #     # filling on, default _FillValue of 9.969209968386869e+36 used, 'TIME': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 TIME(TIME)
-    #     #     units: months since 2004-01-01 00:00:00
-    #     #     time_origin: 01-JAN-2004 00:00:00
-    #     #     axis: T
-    #     # unlimited dimensions: TIME
-    #     # current shape = (180,)
-    #     # filling on, default _FillValue of 9.969209968386869e+36 used, 'ARGO_SALINITY_MEAN': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 ARGO_SALINITY_MEAN(PRESSURE, LATITUDE, LONGITUDE)
-    #     #     units: Practical Salinity Scale 78
-    #     #     missing_value: -999.0
-    #     #     _FillValue: -999.0
-    #     #     long_name: ARGO SALINITY MEAN Jan 2004 - Dec 2018 (15.0 year) RG CLIMATOLOGY
-    #     # unlimited dimensions:
-    #     # current shape = (58, 145, 360)
-    #     # filling on, 'ARGO_SALINITY_ANOMALY': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 ARGO_SALINITY_ANOMALY(TIME, PRESSURE, LATITUDE, LONGITUDE)
-    #     #     units: Practical Salinity Scale 78
-    #     #     missing_value: -999.0
-    #     #     _FillValue: -999.0
-    #     #     long_name: ARGO SALINITY ANOMALY defined by Jan 2004 - Dec 2018 (15.0 year) RG CLIMATOLOGY
-    #     # unlimited dimensions: TIME
-    #     # current shape = (180, 58, 145, 360)
-    #     # filling on, 'BATHYMETRY_MASK': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 BATHYMETRY_MASK(PRESSURE, LATITUDE, LONGITUDE)
-    #     #     missing_value: -9.0
-    #     #     _FillValue: -9.0
-    #     #     long_name: BATHYMETRY MASK
-    #     # unlimited dimensions:
-    #     # current shape = (58, 145, 360)
-    #     # filling on, 'MAPPING_MASK': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 MAPPING_MASK(PRESSURE, LATITUDE, LONGITUDE)
-    #     #     missing_value: -9.0
-    #     #     _FillValue: -9.0
-    #     #     long_name: MAPPING MASK: pressure limits of mapping can be shallower than 2000dbar in marginal seas
-    #     # unlimited dimensions:
-    #     # current shape = (58, 145, 360)
-    #     # filling on}
-
-    # print("\n\n***\n\n")
-    # test_path4 = "data/ArgoClim/RG_ArgoClim_Temperature_2019.nc"
-    # with Dataset(test_path4, "r", format="NETCDF3_CLASSIC") as rootgrp4:
-    #     # print(rootgrp4.variables)
-    #     pass
-
-    #     # {'LONGITUDE': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 LONGITUDE(LONGITUDE)
-    #     #     units: degrees_east
-    #     #     modulo: 360.0
-    #     #     point_spacing: even
-    #     #     axis: X
-    #     # unlimited dimensions:
-    #     # current shape = (360,)
-    #     # filling on, default _FillValue of 9.969209968386869e+36 used, 'LATITUDE': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 LATITUDE(LATITUDE)
-    #     #     units: degrees_north
-    #     #     point_spacing: even
-    #     #     axis: Y
-    #     # unlimited dimensions:
-    #     # current shape = (145,)
-    #     # filling on, default _FillValue of 9.969209968386869e+36 used, 'PRESSURE': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 PRESSURE(PRESSURE)
-    #     #     units: dbar
-    #     #     positive: down
-    #     #     point_spacing: uneven
-    #     #     axis: Z
-    #     # unlimited dimensions:
-    #     # current shape = (58,)
-    #     # filling on, default _FillValue of 9.969209968386869e+36 used, 'TIME': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 TIME(TIME)
-    #     #     units: months since 2004-01-01 00:00:00
-    #     #     time_origin: 01-JAN-2004 00:00:00
-    #     #     axis: T
-    #     # unlimited dimensions: TIME
-    #     # current shape = (180,)
-    #     # filling on, default _FillValue of 9.969209968386869e+36 used, 'ARGO_TEMPERATURE_MEAN': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 ARGO_TEMPERATURE_MEAN(PRESSURE, LATITUDE, LONGITUDE)
-    #     #     units: degree celcius (ITS-90)
-    #     #     missing_value: -999.0
-    #     #     _FillValue: -999.0
-    #     #     long_name: ARGO TEMPERATURE MEAN Jan 2004 - Dec 2018 (15.0 year) RG CLIMATOLOGY
-    #     # unlimited dimensions:
-    #     # current shape = (58, 145, 360)
-    #     # filling on, 'ARGO_TEMPERATURE_ANOMALY': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 ARGO_TEMPERATURE_ANOMALY(TIME, PRESSURE, LATITUDE, LONGITUDE)
-    #     #     units: degree celcius (ITS-90)
-    #     #     missing_value: -999.0
-    #     #     _FillValue: -999.0
-    #     #     long_name: ARGO TEMPERATURE ANOMALY defined by Jan 2004 - Dec 2018 (15.0 year) RG CLIMATOLOGY
-    #     # unlimited dimensions: TIME
-    #     # current shape = (180, 58, 145, 360)
-    #     # filling on, 'BATHYMETRY_MASK': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 BATHYMETRY_MASK(PRESSURE, LATITUDE, LONGITUDE)
-    #     #     missing_value: -9.0
-    #     #     _FillValue: -9.0
-    #     #     long_name: BATHYMETRY MASK
-    #     # unlimited dimensions:
-    #     # current shape = (58, 145, 360)
-    #     # filling on, 'MAPPING_MASK': <class 'netCDF4._netCDF4.Variable'>
-    #     # float32 MAPPING_MASK(PRESSURE, LATITUDE, LONGITUDE)
-    #     #     missing_value: -9.0
-    #     #     _FillValue: -9.0
-    #     #     long_name: MAPPING MASK: pressure limits of mapping can be shallower than 2000dbar in marginal seas
-    #     # unlimited dimensions:
-    #     # current shape = (58, 145, 360)
-    #     # filling on}
-
+    
     # Experiment with MFDataset
     # with MFDataset(f"{directory_path}/RG_ArgoClim_2*_2019.nc") as rootgrp:
     #     pass
@@ -329,7 +153,7 @@ def load_argo_data(directory_path):
     # We will need to join the Salinity and Temperature 2004-2018 datasets together, to match the shape of the 2019-2023 data
     # The dictionary should also have the datasource, being either 'original' or 'extension'
 
-    data_2004 = Rdict("/tmp/data_2004.dd")
+    # data_2004 = Rdict("/tmp/data_2004.dd")
 
     for file in tqdm(
         glob.glob(f"{directory_path}/RG_ArgoClim_2*_2019.nc"),
@@ -353,6 +177,10 @@ def load_argo_data(directory_path):
                 range(len(longitude)), desc=f"Loading longitudes", leave=False
             ):
                 longitude_value = longitude[longitude_idx]
+                # check if this longitude already exists in the db. Skip if it does
+                if db.execute("SELECT COUNT(*) FROM argo_data WHERE LONGITUDE = ? and source= ?;", (longitude_value,"extension")).fetchone()[0] > 0:
+                    # print("skipping longitude", longitude_value)
+                    continue
 
                 for latitude_idx in range(len(latitude)):
                     latitude_value = latitude[latitude_idx]
@@ -382,12 +210,19 @@ def load_argo_data(directory_path):
                                 "PRESSURE": pressure_value,
                                 "TIME": time_value,
                             }
-                            data_2004[
-                                f"{time_value}, {pressure_value}, {latitude_value}, {longitude_value}"
-                            ] = new_row
+                            
+                            # insert into the sqlite db, making sure that we also insert a wkt for the geometry
+                            db.execute("INSERT INTO argo_data (source, ARGO_TEMPERATURE_ANOMALY, ARGO_SALINITY_ANOMALY, LONGITUDE, LATITUDE, PRESSURE, TIME, geometry) VALUES (?, ?, ?, ?, ?, ?, ?, MakePoint(?, ?, 4326));", 
+                                      # cast the timevalue as a sqlite compatible date string
+                                      (source_value, temperature_value, sal_value, longitude_value, latitude_value, pressure_value, time_value.strftime("%Y-%m-%d %H:%M:%S"), longitude_value, latitude_value))
+                                      
+                db.commit()            
+                            # data_2004[
+                            #     f"{time_value}, {pressure_value}, {latitude_value}, {longitude_value}"
+                            # ] = new_row
                             # print(new_row)
                             # sys.exit(0)
-
+    # sys.exit(0)
     for filetype in ["Temperature", "Salinity"]:
         with Dataset(
             f"{directory_path}/RG_ArgoClim_{filetype}_2019.nc",
@@ -424,6 +259,9 @@ def load_argo_data(directory_path):
                 range(len(longitude)), desc=f"Loading {filetype} data"
             ):
                 longitude_value = longitude[longitude_idx]
+                # continue if this longitude already exists in the db, with salinity and source original
+                if db.execute("SELECT COUNT(ARGO_SALINITY_ANOMALY) FROM argo_data WHERE LONGITUDE = ? and source= ?;", (longitude_value,"original")).fetchone()[0] > 0:
+                    continue
 
                 for latitude_idx in tqdm(range(len(latitude)), leave=False):
                     latitude_value = latitude[latitude_idx]
@@ -445,38 +283,52 @@ def load_argo_data(directory_path):
                                 temperature_value = argo_temp[
                                     time_idx, pressure_idx, latitude_idx, longitude_idx
                                 ]
-                                new_row = {
-                                    "source": source_value,
-                                    "ARGO_TEMPERATURE_ANOMALY": temperature_value,
-                                    "LONGITUDE": longitude_value,
-                                    "LATITUDE": latitude_value,
-                                    "PRESSURE": pressure_value,
-                                    "TIME": time_value,
-                                }
-                                data_2004[
-                                    f"{time_value}, {pressure_value}, {latitude_value}, {longitude_value}"
-                                ] = new_row
-                                print(new_row)
+                                # insert into the sqlite db, making sure that we also insert a wkt for the geometry
+                                db.execute("INSERT INTO argo_data (source, ARGO_TEMPERATURE_ANOMALY, LONGITUDE, LATITUDE, PRESSURE, TIME, geometry) VALUES (?, ?, ?, ?, ?, ?, MakePoint(?, ?, 4326));",
+                                            (source_value, temperature_value, longitude_value, latitude_value, pressure_value, time_value.strftime("%Y-%m-%d %H:%M:%S"), longitude_value, latitude_value))
+                                           
+                                # new_row = {
+                                #     "source": source_value,
+                                #     "ARGO_TEMPERATURE_ANOMALY": temperature_value,
+                                #     "LONGITUDE": longitude_value,
+                                #     "LATITUDE": latitude_value,
+                                #     "PRESSURE": pressure_value,
+                                #     "TIME": time_value,
+                                # }
+                                # data_2004[
+                                #     f"{time_value}, {pressure_value}, {latitude_value}, {longitude_value}"
+                                # ] = new_row
+                                # print(new_row)
                             else:
                                 sal_value = argo_sal[
                                     time_idx, pressure_idx, latitude_idx, longitude_idx
                                 ]
-                                data_2004[
-                                    f"{time_value}, {pressure_value}, {latitude_value}, {longitude_value}"
-                                ]["ARGO_SALINITY_ANOMALY"] = sal_value
+                                # update the row
+                                db.execute("UPDATE argo_data SET ARGO_SALINITY_ANOMALY = ? WHERE LONGITUDE = ? AND LATITUDE = ? AND PRESSURE = ? AND TIME = ?;", (sal_value, longitude_value, latitude_value, pressure_value, time_value.strftime("%Y-%m-%d %H:%M:%S")))
+                                # data_2004[
+                                #     f"{time_value}, {pressure_value}, {latitude_value}, {longitude_value}"
+                                # ]["ARGO_SALINITY_ANOMALY"] = sal_value
+                db.commit()
                         # sys.exit(0)
                         # data_2004[f"{time}, {pressure}, {latitude}, {longitude}"] = {"source": "original",
                         # "ARGO_TEMPERATURE_ANOMALY": rootgrp["ARGO_TEMPERATURE_ANOMALY"][longitude, latitude, pressure, time]}
+    # Iterate over the rocksdict and make a geodataframe
+    # data_list = []
+    # for k, v in tqdm(data_2004.items(), desc="Making geodataframe"):
+    #     data_dict = v  # this is your original data dictionary
+    #     data_list.append(data_dict)
 
-    # make a geodataframe from data_2004
-    df = pd.DataFrame.from_dict(data_2004, orient="index")
-    # make a geometry column of Points from the Long Lat
-    df["geometry"] = df.apply(
-        lambda row: Point(row["LONGITUDE"], row["LATITUDE"]), axis=1
-    )
-    # make a geodataframe from the dataframe
-    gdf = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
-    return gdf
+    # df = pd.DataFrame(data_list)
+
+    # # make a geodataframe from data_2004
+    # # df = pd.DataFrame.from_dict(dict_data_2004, orient="index")
+    # # make a geometry column of Points from the Long Lat
+    # df["geometry"] = df.apply(
+    #     lambda row: Point(row["LONGITUDE"], row["LATITUDE"]), axis=1
+    # )
+    # # make a geodataframe from the dataframe
+    # gdf = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
+    # return gdf
 
 
 def plot_temperature_distribution(data_array):
@@ -542,11 +394,17 @@ if __name__ == "__main__":
     sea_ice_extent_df = load_sea_ice_extent_csv("data/S_seaice_extent_daily_v3.0.csv")
 
     # try to load the argo data geodataframe from parquet. If not, regenerate it.
-    try:
-        argo_data = pd.read_parquet("data/argo_data.parquet")
-    except:
-        argo_data = load_argo_data(directory_path="data/ArgoClim")
-        argo_data.to_parquet("data/argo_data.parquet")
+    # try:
+    #     argo_data = pd.read_parquet("data/argo_data.parquet")
+    # except:
+    
+    
+    # argo_data = load_argo_data(directory_path="data/ArgoClim")
+    # run once. 
+    
+    
+    # we're going to need to use a db, not a dataframe.
+    # argo_data.to_parquet("data/argo_data.parquet")
 
     sea_ice_concentration_data = load_sea_ice_concentration_data(
         "path_to_sea_ice_concentration_data.nc"

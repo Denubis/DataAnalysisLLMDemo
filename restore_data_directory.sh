@@ -6,5 +6,5 @@ set -euo pipefail
 rm -rf data
 mkdir -p data
 
-cat original_data/archive-name.tar.bz2.?? | tar -xjf - -C data
+cat original_data/data.tar.bz2.?? | tar -xjf -
 
