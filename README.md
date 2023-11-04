@@ -4,6 +4,8 @@ Demo to use a LLM to explore and analyse data as part of a LLM workshop. Slides:
 
 This data is stored in git LFS. To download the data, you need to install git LFS and then run `git lfs pull`.
 
+Chat: https://chat.openai.com/share/b0cdbc23-9358-4f3d-8527-14ae0a9316b0
+
 # References
 Fetterer, F., K. Knowles, W. N. Meier, M. Savoie, and A. K. Windnagel. (2017). Sea Ice Index, Version 3 [Data Set]. Boulder, Colorado USA. National Snow and Ice Data Center. https://doi.org/10.7265/N5K072F8. Date Accessed 10-31-2023.
 

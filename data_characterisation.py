@@ -111,14 +111,15 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
     """
 
     # connect to the sqlitedb and enable spatialite extension
-    with sqlite3.connect(sqlitedb) as db:
+    with sqlite3.connect(sqlitedb, isolation_level=None) as db:
         db.enable_load_extension(True)
         db.load_extension("mod_spatialite")
         # Note to user, you'll need to install mod-spatalite here
-        
-        # initalise the db if necessary to hold the argo data. 
-        
-        db.execute("""CREATE TABLE IF NOT EXISTS argo_data (
+
+        # initalise the db if necessary to hold the argo data.
+
+        db.execute(
+            """CREATE TABLE IF NOT EXISTS argo_data (
     source TEXT, 
     ARGO_TEMPERATURE_ANOMALY REAL, 
     ARGO_SALINITY_ANOMALY REAL, 
@@ -127,19 +128,25 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
     PRESSURE REAL, 
     TIME TEXT,
     PRIMARY KEY (LONGITUDE, LATITUDE, PRESSURE, TIME));
-""")
-        
+    create table surface_area(longitude real, latitude real, area real);
+"""
+        )
+
         # make the geometry column if it does not exist and only init the spatial metadata if it does not exist
         db.execute("SELECT InitSpatialMetaData(1);")
-        if db.execute("SELECT COUNT(*) FROM geometry_columns WHERE f_table_name = 'argo_data';").fetchone()[0] == 0:
+        if (
+            db.execute(
+                "SELECT COUNT(*) FROM geometry_columns WHERE f_table_name = 'argo_data';"
+            ).fetchone()[0]
+            == 0
+        ):
             # We'll also need to intialise the spatial functions
-            db.execute("SELECT AddGeometryColumn('argo_data', 'geometry', 4326, 'POINT', 'XY');")
+            db.execute(
+                "SELECT AddGeometryColumn('argo_data', 'geometry', 4326, 'POINT', 'XY');"
+            )
             db.execute("SELECT CreateSpatialIndex('argo_data', 'geometry');")
             db.commit()
-        
-    
 
-    
     # Experiment with MFDataset
     # with MFDataset(f"{directory_path}/RG_ArgoClim_2*_2019.nc") as rootgrp:
     #     pass
@@ -167,23 +174,19 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
             longitude = rootgrp["LONGITUDE"][:]
             latitude = rootgrp["LATITUDE"][:]
             pressure = rootgrp["PRESSURE"][:]
-            time = num2date(
-                times=rootgrp["TIME"][:],
-                units="months since 2004-01-01 00:00:00",
-                calendar="360_day",
-            )
+            time = rootgrp["TIME"][:]
 
             for longitude_idx in tqdm(
                 range(len(longitude)), desc=f"Loading longitudes", leave=False
             ):
-                longitude_value = longitude[longitude_idx]
-                # check if this longitude already exists in the db. Skip if it does
-                if db.execute("SELECT COUNT(*) FROM argo_data WHERE LONGITUDE = ? and source= ?;", (longitude_value,"extension")).fetchone()[0] > 0:
-                    # print("skipping longitude", longitude_value)
-                    continue
+                cur = db.cursor()
+                data = []
+                cur.execute("BEGIN TRANSACTION")
+
+                longitude_value = longitude[longitude_idx].item()
 
                 for latitude_idx in range(len(latitude)):
-                    latitude_value = latitude[latitude_idx]
+                    latitude_value = latitude[latitude_idx].item()
 
                     if latitude_value > -40:
                         # print("skipping latitude", latitude_value)
@@ -191,37 +194,72 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                     for pressure_idx in range(len(pressure)):
                         for time_idx in range(len(time)):
                             source_value = "extension"
-                            time_value = time[time_idx]
-                            pressure_value = pressure[pressure_idx]
+                            # We need to cast these numpy objects to things that sqlite3 will accept
+                            time_num = num2date(
+                                times=time[time_idx],
+                                units="months since 2004-01-01 00:00:00",
+                                calendar="360_day",
+                            )
+                            time_value = time_num.strftime("%Y-%m-%d %H:%M:%S")
+
+                            pressure_value = pressure[pressure_idx].item()
+
                             temperature_value = argo_temp[
                                 time_idx, pressure_idx, latitude_idx, longitude_idx
-                            ]
+                            ].item()
 
                             sal_value = argo_sal[
                                 time_idx, pressure_idx, latitude_idx, longitude_idx
-                            ]
+                            ].item()
 
-                            new_row = {
-                                "source": source_value,
-                                "ARGO_TEMPERATURE_ANOMALY": temperature_value,
-                                "ARGO_SALINITY_ANOMALY": sal_value,
-                                "LONGITUDE": longitude_value,
-                                "LATITUDE": latitude_value,
-                                "PRESSURE": pressure_value,
-                                "TIME": time_value,
-                            }
-                            
+                            new_row = (
+                                source_value,
+                                temperature_value,
+                                sal_value,
+                                longitude_value,
+                                latitude_value,
+                                pressure_value,
+                                time_value,
+                                longitude_value,
+                                latitude_value,
+                            )
+                            data.append(new_row)
                             # insert into the sqlite db, making sure that we also insert a wkt for the geometry
-                            db.execute("INSERT INTO argo_data (source, ARGO_TEMPERATURE_ANOMALY, ARGO_SALINITY_ANOMALY, LONGITUDE, LATITUDE, PRESSURE, TIME, geometry) VALUES (?, ?, ?, ?, ?, ?, ?, MakePoint(?, ?, 4326));", 
-                                      # cast the timevalue as a sqlite compatible date string
-                                      (source_value, temperature_value, sal_value, longitude_value, latitude_value, pressure_value, time_value.strftime("%Y-%m-%d %H:%M:%S"), longitude_value, latitude_value))
-                                      
-                db.commit()            
-                            # data_2004[
-                            #     f"{time_value}, {pressure_value}, {latitude_value}, {longitude_value}"
-                            # ] = new_row
-                            # print(new_row)
-                            # sys.exit(0)
+                cur.executemany(
+                    "INSERT INTO argo_data (source, ARGO_TEMPERATURE_ANOMALY, ARGO_SALINITY_ANOMALY, LONGITUDE, LATITUDE, PRESSURE, TIME, geometry) VALUES (?, ?, ?, ?, ?, ?, ?, MakePoint(?, ?, 4326));",
+                    # cast the timevalue as a sqlite compatible date string
+                    data,
+                )
+                #             print(
+                #                 db.execute(
+                #                     "SELECT source, ARGO_TEMPERATURE_ANOMALY, ARGO_SALINITY_ANOMALY, LONGITUDE, LATITUDE, PRESSURE, TIME, AsWKT(geometry) FROM argo_data WHERE LONGITUDE = ? AND LATITUDE = ? AND PRESSURE = ? AND TIME = ?;",
+                #                     (longitude_value, latitude_value, pressure_value, time_value),
+                #                 ).fetchone()
+                #             )
+                # print(time[time_idx], time_num, time_value)
+                # print(
+                #     source_value,
+                #     temperature_value,
+                #     sal_value,
+                #     longitude_value,
+                #     latitude_value,
+                #     pressure_value,
+                #     time_value,
+                #     longitude_value,
+                #     latitude_value,
+                # )
+                # let's QA this by querying what we just entered, making sure to use an aswkt to get the geometry back.
+
+                cur.execute("COMMIT")
+            #     break
+            # break
+
+            # sys.exit(0)
+            # data_2004[
+            #     f"{time_value}, {pressure_value}, {latitude_value}, {longitude_value}"
+            # ] = new_row
+            # print(new_row)
+            # sys.exit(0)
     # sys.exit(0)
     for filetype in ["Temperature", "Salinity"]:
         with Dataset(
@@ -229,7 +267,7 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
             "r",
             format="NETCDF3_CLASSIC",
         ) as nc_file:
-            print(nc_file.variables)
+            # print(nc_file.variables)
             # We need to iterate over all four dimensions to add the data to the dict
             #  {'LONGITUDE': <class 'netCDF4._netCDF4.Dimension'>: name = 'LONGITUDE', size = 360, 'LATITUDE': <class 'netCDF4._netCDF4.Dimension'>: name = 'LATITUDE', size = 145, 'PRESSURE': <class 'netCDF4._netCDF4.Dimension'>: name = 'PRESSURE', size = 58, 'TIME': <class 'netCDF4._netCDF4.Dimension'> (unlimited): name = 'TIME', size = 180}
             if filetype == "Temperature":
@@ -241,30 +279,36 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
             # print(longitude.shape)
             # (360,)
             latitude = nc_file.variables["LATITUDE"][:]
-            print(latitude.shape)
+            # print(latitude.shape)
             # (145,)
             pressure = nc_file.variables["PRESSURE"][:]
-            print(pressure.shape)
+            # print(pressure.shape)
             # (58,)
-            time = num2date(
-                times=nc_file["TIME"][:],
-                units="months since 2004-01-01 00:00:00",
-                calendar="360_day",
-            )
-            print(time.shape)
+            time = nc_file["TIME"][:]
+            # print(time.shape)
             # (180,)
 
             # iterate over all of these to populate a dictionary so that we may join two datasources together
             for longitude_idx in tqdm(
                 range(len(longitude)), desc=f"Loading {filetype} data"
             ):
-                longitude_value = longitude[longitude_idx]
+                longitude_value = longitude[longitude_idx].item()
+                cur = db.cursor()
+                data = []
+                updates = []
+                cur.execute("BEGIN TRANSACTION")
                 # continue if this longitude already exists in the db, with salinity and source original
-                if db.execute("SELECT COUNT(ARGO_SALINITY_ANOMALY) FROM argo_data WHERE LONGITUDE = ? and source= ?;", (longitude_value,"original")).fetchone()[0] > 0:
-                    continue
+                # if (
+                #     db.execute(
+                #         "SELECT COUNT(ARGO_SALINITY_ANOMALY) FROM argo_data WHERE LONGITUDE = ? and source= ?;",
+                #         (longitude_value, "original"),
+                #     ).fetchone()[0]
+                #     > 0
+                # ):
+                #     continue
 
                 for latitude_idx in tqdm(range(len(latitude)), leave=False):
-                    latitude_value = latitude[latitude_idx]
+                    latitude_value = latitude[latitude_idx].item()
 
                     if latitude_value > -40:
                         # print("skipping latitude", latitude_value)
@@ -274,19 +318,34 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                             # print(longitude_idx, latitude_idx, pressure_idx, time_idx)
 
                             source_value = "original"
-                            time_value = time[time_idx]
-                            longitude_value = longitude[longitude_idx]
-                            latitude_value = latitude[latitude_idx]
-                            pressure_value = pressure[pressure_idx]
+                            time_orig = num2date(
+                                times=time[time_idx],
+                                units="months since 2004-01-01 00:00:00",
+                                calendar="360_day",
+                            )
+                            time_value = time_orig.strftime("%Y-%m-%d %H:%M:%S")
+                            longitude_value = longitude[longitude_idx].item()
+                            latitude_value = latitude[latitude_idx].item()
+                            pressure_value = pressure[pressure_idx].item()
 
                             if filetype == "Temperature":
                                 temperature_value = argo_temp[
                                     time_idx, pressure_idx, latitude_idx, longitude_idx
-                                ]
+                                ].item()
                                 # insert into the sqlite db, making sure that we also insert a wkt for the geometry
-                                db.execute("INSERT INTO argo_data (source, ARGO_TEMPERATURE_ANOMALY, LONGITUDE, LATITUDE, PRESSURE, TIME, geometry) VALUES (?, ?, ?, ?, ?, ?, MakePoint(?, ?, 4326));",
-                                            (source_value, temperature_value, longitude_value, latitude_value, pressure_value, time_value.strftime("%Y-%m-%d %H:%M:%S"), longitude_value, latitude_value))
-                                           
+                                data.append(
+                                    (
+                                        source_value,
+                                        temperature_value,
+                                        longitude_value,
+                                        latitude_value,
+                                        pressure_value,
+                                        time_value,
+                                        longitude_value,
+                                        latitude_value,
+                                    )
+                                )
+
                                 # new_row = {
                                 #     "source": source_value,
                                 #     "ARGO_TEMPERATURE_ANOMALY": temperature_value,
@@ -302,16 +361,41 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                             else:
                                 sal_value = argo_sal[
                                     time_idx, pressure_idx, latitude_idx, longitude_idx
-                                ]
+                                ].item()
                                 # update the row
-                                db.execute("UPDATE argo_data SET ARGO_SALINITY_ANOMALY = ? WHERE LONGITUDE = ? AND LATITUDE = ? AND PRESSURE = ? AND TIME = ?;", (sal_value, longitude_value, latitude_value, pressure_value, time_value.strftime("%Y-%m-%d %H:%M:%S")))
+                                updates.append(
+                                    (
+                                        sal_value,
+                                        longitude_value,
+                                        latitude_value,
+                                        pressure_value,
+                                        time_value,
+                                    ),
+                                )
                                 # data_2004[
                                 #     f"{time_value}, {pressure_value}, {latitude_value}, {longitude_value}"
                                 # ]["ARGO_SALINITY_ANOMALY"] = sal_value
-                db.commit()
-                        # sys.exit(0)
-                        # data_2004[f"{time}, {pressure}, {latitude}, {longitude}"] = {"source": "original",
-                        # "ARGO_TEMPERATURE_ANOMALY": rootgrp["ARGO_TEMPERATURE_ANOMALY"][longitude, latitude, pressure, time]}
+                if data:
+                    cur.executemany(
+                        "INSERT INTO argo_data (source, ARGO_TEMPERATURE_ANOMALY, LONGITUDE, LATITUDE, PRESSURE, TIME, geometry) VALUES (?, ?, ?, ?, ?, ?, MakePoint(?, ?, 4326));",
+                        data,
+                    )
+                if updates:
+                    cur.executemany(
+                        "UPDATE argo_data SET ARGO_SALINITY_ANOMALY = ? WHERE LONGITUDE = ? AND LATITUDE = ? AND PRESSURE = ? AND TIME = ?;",
+                        updates,
+                    )
+                cur.execute("COMMIT")
+                print(
+                    db.execute(
+                        "SELECT source, ARGO_TEMPERATURE_ANOMALY, ARGO_SALINITY_ANOMALY, LONGITUDE, LATITUDE, PRESSURE, TIME, AsWKT(geometry) FROM argo_data WHERE LONGITUDE = ? AND LATITUDE = ? AND PRESSURE = ? AND TIME = ?;",
+                        (longitude_value, latitude_value, pressure_value, time_value),
+                    ).fetchone()
+                )
+                # break
+                # sys.exit(0)
+                # data_2004[f"{time}, {pressure}, {latitude}, {longitude}"] = {"source": "original",
+                # "ARGO_TEMPERATURE_ANOMALY": rootgrp["ARGO_TEMPERATURE_ANOMALY"][longitude, latitude, pressure, time]}
     # Iterate over the rocksdict and make a geodataframe
     # data_list = []
     # for k, v in tqdm(data_2004.items(), desc="Making geodataframe"):
@@ -397,12 +481,10 @@ if __name__ == "__main__":
     # try:
     #     argo_data = pd.read_parquet("data/argo_data.parquet")
     # except:
-    
-    
-    # argo_data = load_argo_data(directory_path="data/ArgoClim")
-    # run once. 
-    
-    
+
+    argo_data = load_argo_data(directory_path="data/ArgoClim")
+    # run once.
+
     # we're going to need to use a db, not a dataframe.
     # argo_data.to_parquet("data/argo_data.parquet")
 
@@ -417,6 +499,6 @@ if __name__ == "__main__":
     plot_sea_ice_extent_timeseries(
         sea_ice_extent_df, f"{OUTPUT}/sea_ice_extent_timeseries.png"
     )
-    plot_temperature_distribution(argo_data)
+    # plot_temperature_distribution(argo_data)
     plot_sea_ice_concentration_timeseries(sea_ice_concentration_data)
     plot_sea_ice_extent_trends(sea_ice_extent_data)
