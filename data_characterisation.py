@@ -215,8 +215,8 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
 
             for time_idx in tqdm(range(len(time)), desc="Time"):
                 data = []
-                cur = db.cursor()
-                cur.execute("BEGIN TRANSACTION")
+                # cur = db.cursor()
+                # cur.execute("BEGIN TRANSACTION")
                 for longitude_idx in tqdm(
                     range(len(longitude)), desc=f"Loading longitudes", leave=False
                 ):
@@ -270,8 +270,8 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                 mean_temp = df["temp_weighted"].sum() / df["area_sqm"].sum()
                 mean_sal = df["sal_weighted"].sum() / df["area_sqm"].sum()
                 # insert into the argo_monthly_data table
-                cur.execute("INSERT INTO argo_monthly_data (source, MEAN_ARGO_TEMPERATURE_ANOMALY, MEAN_ARGO_SALINITY_ANOMALY, TIME) VALUES (?, ?, ?, ?);", (source_value, mean_temp, mean_sal, time_value)) 
-
+                db.execute("INSERT INTO argo_monthly_data (source, MEAN_ARGO_TEMPERATURE_ANOMALY, MEAN_ARGO_SALINITY_ANOMALY, TIME) VALUES (?, ?, ?, ?);", (source_value, mean_temp, mean_sal, time_value)) 
+                db.commit()
 
                 # cur.executemany(
                 #     "INSERT INTO argo_data (source, ARGO_TEMPERATURE_ANOMALY, ARGO_SALINITY_ANOMALY, LONGITUDE, LATITUDE, PRESSURE, TIME, geometry) VALUES (?, ?, ?, ?, ?, ?, ?, MakePoint(?, ?, 4326));",
@@ -298,7 +298,7 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                 # )
                 # let's QA this by querying what we just entered, making sure to use an aswkt to get the geometry back.
 
-                cur.execute("COMMIT")
+                # cur.execute("COMMIT")
             #     break
             # break
 
@@ -307,7 +307,7 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
             #     f"{time_value}, {pressure_value}, {latitude_value}, {longitude_value}"
             # ] = new_row
             # print(new_row)
-            sys.exit(0)
+            # sys.exit(0)
     # sys.exit(0)
     # for filetype in ["Temperature", "Salinity"]:
     with Dataset(
@@ -344,8 +344,8 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
             # iterate over all of these to populate a dictionary so that we may join two datasources together
             for time_idx in tqdm(range(len(time))):
                 data = []
-                cur = db.cursor()
-                cur.execute("BEGIN TRANSACTION")
+                # cur = db.cursor()
+                # cur.execute("BEGIN TRANSACTION")
                 for longitude_idx in tqdm(
                     range(len(longitude)), desc=f"Loading {filetype} data", leave=False
                 ):
@@ -401,8 +401,8 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                 mean_temp = df["temp_weighted"].sum() / df["area_sqm"].sum()
                 mean_sal = df["sal_weighted"].sum() / df["area_sqm"].sum()
                 # insert into the argo_monthly_data table
-                cur.execute("INSERT INTO argo_monthly_data (source, MEAN_ARGO_TEMPERATURE_ANOMALY, MEAN_ARGO_SALINITY_ANOMALY, TIME) VALUES (?, ?, ?, ?);", (source_value, mean_temp, mean_sal, time_value))
-                
+                db.execute("INSERT INTO argo_monthly_data (source, MEAN_ARGO_TEMPERATURE_ANOMALY, MEAN_ARGO_SALINITY_ANOMALY, TIME) VALUES (?, ?, ?, ?);", (source_value, mean_temp, mean_sal, time_value))
+                db.commit()
 
                             # longitude_value = longitude[longitude_idx].item()
                             # latitude_value = latitude[latitude_idx].item()
@@ -465,7 +465,7 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                 #         "UPDATE argo_data SET ARGO_SALINITY_ANOMALY = ? WHERE LONGITUDE = ? AND LATITUDE = ? AND PRESSURE = ? AND TIME = ?;",
                 #         updates,
                 #     )
-                cur.execute("COMMIT")
+                # cur.execute("COMMIT")
                 # print(
                 #     db.execute(
                 #         "SELECT source, ARGO_TEMPERATURE_ANOMALY, ARGO_SALINITY_ANOMALY, LONGITUDE, LATITUDE, PRESSURE, TIME, AsWKT(geometry) FROM argo_data WHERE LONGITUDE = ? AND LATITUDE = ? AND PRESSURE = ? AND TIME = ?;",
@@ -495,13 +495,58 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
     # return gdf
 
 
-def plot_temperature_distribution(data_array):
+def plot_temperature_distribution(sqlitedb="data/argo_data.db", output_file="output/temperature_distribution.png""):
     """
     Plot the distribution of the ocean temperature data.
 
     recreate "Timeseries of 0-2000dbar Global-Average Open Ocean Potential Temperature (oC) (Spatial mask defined within RG netCDF file. Marginal Seas and the Arctic Ocean are excluded from the calculation) over the 180 months of the RG Climatology (2004-2018) [black line] and 2019-2020 monthly extensions [red line]. The 12-Month box-car average is shown in green."
     """
-    pass
+    # make a dataframe from the sqlite db in data_directory
+    # CREATE TABLE argo_monthly_data (
+    # source TEXT,
+    # MEAN_ARGO_TEMPERATURE_ANOMALY REAL,
+    # MEAN_ARGO_SALINITY_ANOMALY REAL,
+    # TIME TEXT PRIMARY KEY);
+    with sqlite3.connect(sqlitedb) as db:
+        query = "SELECT source, MEAN_ARGO_TEMPERATURE, MEAN_ARGO_SALINITY, TIME from argo_monthly_data"
+
+        df = pd.read_sql(query, conn)
+
+        # make sure that the time output from sqlite is mapped properly to python
+        df["TIME"] = pd.to_datetime(df["TIME"])
+
+        # we are now going to make two plots, mean temperature over time, and mean salinity over time using seaborn
+
+        # make a figure with two subplots
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 6))
+
+        # plot the mean temperature over time
+        sns.lineplot(data=df, x="TIME", y="MEAN_ARGO_TEMPERATURE", ax=ax1)
+        ax1.set_title("Mean Temperature over Time")
+        ax1.set_ylabel("Temperature (C)")
+
+        # plot the mean salinity over time
+        sns.lineplot(data=df, x="TIME", y="MEAN_ARGO_SALINITY", ax=ax2)
+        ax2.set_title("Mean Salinity over Time")
+        ax2.set_ylabel("Salinity (PSU)")
+
+        # rotate dates on x-axis
+        ax1.set_xticklabels(
+            ax1.get_xticklabels(), rotation=45, horizontalalignment="right"
+        )
+
+        ax2.set_xticklabels(
+            ax2.get_xticklabels(), rotation=45, horizontalalignment="right"
+        )
+
+        plt.tight_layout()
+        
+        # Save fig to output file
+        fig.savefig(output_file)
+        
+    return df
+
+
 
 
 # ---------------------------------------
@@ -568,16 +613,17 @@ if __name__ == "__main__":
     # we're going to need to use a db, not a dataframe.
     # argo_data.to_parquet("data/argo_data.parquet")
 
-    sea_ice_concentration_data = load_sea_ice_concentration_data(
-        "path_to_sea_ice_concentration_data.nc"
-    )
-    sea_ice_extent_data = load_sea_ice_extent_data(
-        "path_to_sea_ice_extent_data.csv_or_other_format"
-    )
+    # sea_ice_concentration_data = load_sea_ice_concentration_data(
+    #     "path_to_sea_ice_concentration_data.nc"
+    # )
+    # sea_ice_extent_data = load_sea_ice_extent_data(
+    #     "path_to_sea_ice_extent_data.csv_or_other_format"
+    # )
 
     # Preliminary visualizations
     plot_sea_ice_extent_timeseries(
-        sea_ice_extent_df, f"{OUTPUT}/sea_ice_extent_timeseries.png"
+        directory_path="data/ArgoClim", 
+        output_dir=f"{OUTPUT}/argo_demo.png"
     )
     # plot_temperature_distribution(argo_data)
     plot_sea_ice_concentration_timeseries(sea_ice_concentration_data)
