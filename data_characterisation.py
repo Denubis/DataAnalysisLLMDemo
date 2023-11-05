@@ -495,7 +495,7 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
     # return gdf
 
 
-def plot_temperature_distribution(sqlitedb="data/argo_data.db", output_file="output/temperature_distribution.png""):
+def plot_temperature_distribution(sqlitedb="data/argo_data.db", output_file="output/temperature_distribution.png"):
     """
     Plot the distribution of the ocean temperature data.
 
@@ -543,7 +543,7 @@ def plot_temperature_distribution(sqlitedb="data/argo_data.db", output_file="out
         
         # Save fig to output file
         fig.savefig(output_file)
-        
+
     return df
 
 
