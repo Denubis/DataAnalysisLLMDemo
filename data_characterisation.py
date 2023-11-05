@@ -250,7 +250,7 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                             # use spatialite or  geopandas to calculate the area of the lat/long cell for future averaging
                             # Spatialite query: 
                             # insert into surface_area (longitude, latitude, area) SELECT distinct longitude, latitude, area(st_expand(MakePoint(longitude, latitude, 4326),0.5),true) from argo_data;
-                            print(f"SELECT area(st_expand(MakePoint({longitude_value}, {latitude_value}, 4326),0.5),true);")
+                            # print(f"SELECT area(st_expand(MakePoint({longitude_value}, {latitude_value}, 4326),0.5),true);")
                             # area = db.execute(f"SELECT area(st_expand(MakePoint({longitude_value}, {latitude_value}, 4326),0.5),true)").fetchone()[0]
 
                             area = calculate_area(lat=latitude_value, lon=longitude_value, grid_size=0.5)
