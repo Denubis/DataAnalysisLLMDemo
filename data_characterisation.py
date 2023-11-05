@@ -190,10 +190,10 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                 for longitude_idx in tqdm(
                     range(len(longitude)), desc=f"Loading longitudes", leave=False
                 ):
-                    # longitude_value = longitude[longitude_idx].item()
+                    longitude_value = longitude[longitude_idx].item()
 
                     for latitude_idx in range(len(latitude)):
-                        # latitude_value = latitude[latitude_idx].item()
+                        latitude_value = latitude[latitude_idx].item()
 
                         # if latitude_value > -40:
                         #     # print("skipping latitude", latitude_value)
