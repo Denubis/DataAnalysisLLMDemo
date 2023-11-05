@@ -2,6 +2,10 @@
 # Import necessary libraries
 import pandas as pd
 
+
+import pyproj
+import math
+
 # import geopandas as gpd
 from netCDF4 import Dataset
 import matplotlib.pyplot as plt
@@ -20,6 +24,33 @@ import pickle
 # from rocksdict import Rdict
 import sqlean as sqlite3
 
+
+
+import pyproj
+import math
+#https://www.perplexity.ai/search/for-spatialite-how-MhMo3ufLTrOR47pmoHYrMw?s=c
+def calculate_area(lat, lon, grid_size=1):
+    # Define the WGS84 ellipsoid
+    wgs84 = pyproj.Geod(ellps='WGS84')
+
+    # Calculate the corner coordinates of the grid square
+    lat1 = lat - grid_size / 2
+    lat2 = lat + grid_size / 2
+    lon1 = lon - grid_size / 2
+    lon2 = lon + grid_size / 2
+
+    # Calculate the lengths of the sides of the grid square
+    _, _, side_ns = wgs84.inv(lon, lat1, lon, lat2)
+    _, _, side_ew = wgs84.inv(lon1, lat, lon2, lat)
+
+    # Calculate the area of the grid square
+    area = math.fabs(side_ns * side_ew)
+
+    return area
+
+
+area = calculate_area(lat, lon, grid_size)
+print(f"Area of the grid square: {area} square meters")
 # Global variables or configurations (like paths to datasets, etc.)
 
 # ---------------------------------------
@@ -221,7 +252,9 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                             # Spatialite query: 
                             # insert into surface_area (longitude, latitude, area) SELECT distinct longitude, latitude, area(st_expand(MakePoint(longitude, latitude, 4326),0.5),true) from argo_data;
                             print(f"SELECT area(st_expand(MakePoint({longitude_value}, {latitude_value}, 4326),0.5),true);")
-                            area = db.execute(f"SELECT area(st_expand(MakePoint({longitude_value}, {latitude_value}, 4326),0.5),true)").fetchone()[0]
+                            # area = db.execute(f"SELECT area(st_expand(MakePoint({longitude_value}, {latitude_value}, 4326),0.5),true)").fetchone()[0]
+
+                            area = calculate_area(lat=latitude_value, long=longitude_value, grid_size=0.5)
 
                             new_row = {
                                 "source":source_value,
@@ -347,7 +380,8 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                             # LEt's run the same prep for mean calculation as we did above
                             # use spatialite to calculate the area of the lat/long cell for future averaging
 
-                            area = db.execute(f"SELECT area(st_expand(MakePoint({longitude_value}, {latitude_value}, 4326),0.5),true)").fetchone()[0]
+                            # area = db.execute(f"SELECT area(st_expand(MakePoint({longitude_value}, {latitude_value}, 4326),0.5),true)").fetchone()[0]
+                            area = calculate_area(lat=latitude_value, long=longitude_value, grid_size=0.5)
 
                             temperature_value = argo_temp[
                                 time_idx, pressure_idx, latitude_idx, longitude_idx].item()
