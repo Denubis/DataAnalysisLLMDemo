@@ -49,8 +49,7 @@ def calculate_area(lat, lon, grid_size=1):
     return area
 
 
-area = calculate_area(lat, lon, grid_size)
-print(f"Area of the grid square: {area} square meters")
+
 # Global variables or configurations (like paths to datasets, etc.)
 
 # ---------------------------------------
