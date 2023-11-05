@@ -221,7 +221,7 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                             # Spatialite query: 
                             # insert into surface_area (longitude, latitude, area) SELECT distinct longitude, latitude, area(st_expand(MakePoint(longitude, latitude, 4326),0.5),true) from argo_data;
 
-                            area = db.execute("SELECT area(st_expand(MakePoint(?, ?, 4326),0.5),true)", longitude_value, latitude_value).fetchone()[0]
+                            area = db.execute("SELECT area(st_expand(MakePoint(?, ?, 4326),0.5),true)", (longitude_value, latitude_value)).fetchone()[0]
 
                             new_row = {
                                 "source":source_value,
@@ -347,7 +347,7 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
                             # LEt's run the same prep for mean calculation as we did above
                             # use spatialite to calculate the area of the lat/long cell for future averaging
 
-                            area=db.execute("SELECT area(st_expand(MakePoint(?, ?, 4326),0.5),true)", longitude_value, latitude_value).fetchone()[0]
+                            area=db.execute("SELECT area(st_expand(MakePoint(?, ?, 4326),0.5),true)", (longitude_value, latitude_value)).fetchone()[0]
 
                             temperature_value = argo_temp[
                                 time_idx, pressure_idx, latitude_idx, longitude_idx].item()
