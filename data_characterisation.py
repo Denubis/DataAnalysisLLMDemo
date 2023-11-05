@@ -185,21 +185,20 @@ def load_argo_data(directory_path, sqlitedb="data/argo_data.db"):
 
             for time_idx in tqdm(range(len(time)), desc="Time"):
                 data = []
+                cur = db.cursor()
+                cur.execute("BEGIN TRANSACTION")
                 for longitude_idx in tqdm(
                     range(len(longitude)), desc=f"Loading longitudes", leave=False
                 ):
-                cur = db.cursor()
-                cur.execute("BEGIN TRANSACTION")
+                    # longitude_value = longitude[longitude_idx].item()
 
-                # longitude_value = longitude[longitude_idx].item()
+                    for latitude_idx in range(len(latitude)):
+                        # latitude_value = latitude[latitude_idx].item()
 
-                for latitude_idx in range(len(latitude)):
-                    # latitude_value = latitude[latitude_idx].item()
-
-                    # if latitude_value > -40:
-                    #     # print("skipping latitude", latitude_value)
-                    #     continue
-                    for pressure_idx in range(len(pressure)):
+                        # if latitude_value > -40:
+                        #     # print("skipping latitude", latitude_value)
+                        #     continue
+                        for pressure_idx in range(len(pressure)):
                             source_value = "extension"
                             # We need to cast these numpy objects to things that sqlite3 will accept
                             time_num = num2date(
